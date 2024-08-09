@@ -1,0 +1,1061 @@
+---
+title: "#CN_Demog_tps_long\nAnalyse des communes nouvelles au prisme des évolutions démographiques sur le temps long"
+author: "G. Bideau"
+date: '`r format(Sys.time(), "%d %B %Y %X")`' # %X pour rajouter l'heure
+# bibliography: biblio/biblio.bib
+link_citations: true
+output:
+     html_document:
+       toc: true
+       theme: united
+       css : css/styles.css
+       number_sections: true
+editor_options: 
+  chunk_output_type: console
+---
+```{r Setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, # Afficher ou non le code R dans le document
+                      eval	= TRUE, #	Exécuter ou non le code R à la compilation
+                      include	= TRUE, #	Inclure ou non le code R et ses résultats dans le document
+                      # results	“hide”/“asis”/“markup”/“hold”	Type de résultats renvoyés par le bloc de code
+                      warning = FALSE, # Afficher ou non les avertissements générés par le bloc
+                      message = FALSE,  # Afficher ou non les messages générés par le bloc
+                      cache=TRUE) # Utiliser le cache pour accélerer les knits
+
+# Librairies utilisées
+library(sf)
+library(cartography)
+library(mapsf)
+library(corrplot)
+library(cowplot)
+library(MTA)
+library(readxl)
+library(ggplot2)
+library(FactoMineR) 
+library(factoextra)
+library(cluster)
+# library(stringr)
+library(reshape)
+library(flows)
+library(sp)
+library(knitr)
+library(condformat)
+# library(dplyr)
+library(questionr)
+library(spdep) # Pour les matrices de contiguïté
+library(rgeoda) # Pour les matrices de contiguïté
+
+```
+
+
+
+
+#Packages nécessaires
+
+
+```{r Librairies}
+# Librairies utilisées
+library(sf)
+library(cartography)
+library(mapsf)
+library(corrplot)
+library(cowplot)
+library(MTA)
+library(readxl)
+library(ggplot2)
+library(FactoMineR) 
+library(factoextra)
+library(cluster)
+library(reshape)
+library(reshape2)
+library(flows)
+# NB : Pour le package flows, la version la plus récente est disponible ici :
+# remotes::install_github("rCarto/flows") # ou # install.packages("mapsf")
+# Pour obtenir une version plus ancienne (celle utilisée ici) : https://cran.r-project.org/src/contrib/Archive/flows/
+# install.packages("packages/flows_1.1.1.tar.gz", repos=NULL, type="source")
+library(sp)
+library(knitr)
+library(condformat) # https://cran.r-project.org/web/packages/condformat/vignettes/introduction.html
+library(units)
+# library(stringr)
+# library(dplyr)
+library(questionr)
+library(spdep) # Pour les matrices de contiguïté
+library(rgeoda) # Pour les matrices de contiguïté
+
+# Liste pour installer les packages si besoin :
+# sf cartography mapsf readxl foreign dplyr flextable knitr stringr units condformat forcats ggplot2 rstatix questionr corrplot gtsummary broom GGally effects forestmodel ggeffects labelled cowplot spdep rgeoda
+
+```
+
+
+# Vision générale
+
+Il s'agit d'observer si les communes nouvelles se sont créées dans des contextes démographiques spécifiques ou non. S'agit-il de contextes :
+
+- Très différents des autres communes n'ayant pas fusionné ? On fait l'hypothèse que non.
+
+- En déprise importante, et la fusion serait une adaptation à cette décroissance ? On suppose que non.
+
+Pour une analyse en première intention, on utilise un fichier aisément disponible, celui de l'historique des populations depuis 1876, les données étant agrégées à la géométrie administrative au 1er janvier 2021 (ce qui simplifie grandement tous les appariements).
+
+Source : https://www.insee.fr/fr/statistiques/3698339.
+
+
+```{r evol_demographiques}
+# download.file("https://www.insee.fr/fr/statistiques/fichier/3698339/base-pop-historiques-1876-2019.xlsx", "data-raw/stats_insee/historique_pop_1876-2019.xlsx")
+# hist_pop <- read_xlsx( "data-raw/stats_insee/historique_pop_1876-2019.xlsx", skip = 5)
+# download.file("https://www.insee.fr/fr/statistiques/fichier/3698339/base-pop-historiques-1876-2020.xlsx", "data-raw/stats_insee/historique_pop_1876-2020.xlsx")
+# hist_pop <- read_xlsx( "data-raw/stats_insee/historique_pop_1876-2020.xlsx", skip = 5)
+# download.file("https://www.insee.fr/fr/statistiques/fichier/3698339/base-pop-historiques-1876-2021.xlsx", "data-raw/stats_insee/historique_pop_1876-2021.xlsx")
+hist_pop <- read_xlsx( "data-raw/stats_insee/historique_pop_1876-2021.xlsx", skip = 5) # géométrie au 1er janvier 2023
+nbr_col_hist_pop_ini <- ncol(hist_pop)
+
+annees_recensements <- c("2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011", "2010", "2009", "2008", "2007", "2006", "1999", "1990", "1982", "1975", "1968", "1962", "1954", "1936", "1931", "1926", "1921", "1911", "1906", "1901", "1896", "1891", "1886", "1881", "1876")
+
+Id_comm <- c("France\nentière", "Communes\ninchangées", "Communes\nnouvelles")
+Id_comm <- as.factor(c("France\nentière", "Communes\ninchangées", "Communes\nnouvelles"))
+Id_comm <- factor(Id_comm,c("France\nentière", "Communes\ninchangées", "Communes\nnouvelles"))
+
+
+ensembl_etud <- "France entière"
+
+# Appariement avec les données des communes nouvelles
+# load("data/refdata.Rdata")
+load("Archives/data_prep 2011-2023(01)/data/refdata.Rdata") # géométries au 1er janvier 2023
+
+
+hist_pop_tt <- merge(hist_pop, df_new, by.x = "CODGEO", by.y = "CODGEO_new")
+# hist_pop <- merge(hist_pop, df_new, by.x = "CODGEO", by.y = "CODGEO_new", all.x = TRUE)
+# test <- hist_pop[, c("CODGEO", "LIBGEO.x", "LIBGEO_new", "LIBGEO.y")] # À quelques exceptions près, les communes non intégrées sont bien celles de l'outre-mer et de la Corse
+
+# Import de la table d'appartenance pour l'année 2023 # Servira pour la catégorie par ZAAV
+# appart <- data.frame(read_excel("data-raw/stats_insee/table-appartenance-geo-communes-21_v2022-09-27.xlsx",  sheet = "COM", skip = 5))
+appart <- data.frame(read_excel("data-raw/stats_insee/table-appartenance-geo-communes-23.xlsx",  sheet = "COM", skip = 5))
+
+
+hist_pop_CN <- subset (hist_pop_tt, hist_pop_tt$COM_NOUV == "OUI")
+nbr_CN <- nrow(hist_pop_CN)
+# Si on veut supprimer les communes plus grandes que la plus grande commune nouvelle
+max_pop_CN <- max(hist_pop_CN$PMUN2021)
+hist_pop <- subset (hist_pop_tt, hist_pop_tt$PMUN2021 <= max_pop_CN)
+hist_pop_Nfus <- subset (hist_pop, hist_pop$COM_NOUV == "NON")
+nbr_Nfus <- nrow(hist_pop_Nfus)
+  
+# On fait la somme de la population de l'ensemble des communes françaises
+somme <- as.data.frame(lapply(hist_pop[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+# On fait la somme de la population des communes nouvelles
+somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+# On fait la somme de la population des communes n'ayant pas fusionné
+somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+# On combine les données
+sommes <- rbind (somme, somme_Nfus, somme_CN)
+# Création d'un tableau pour calculer les bases 100 en fonction du recensement le plus récent.
+sommes_base_100 <- sommes
+# Création d'un tableau pour calculer les bases 100 en fonction du recensement le plus ancien.
+sommes_base_100_deb <- sommes
+
+colnames(sommes) <- annees_recensements
+
+sommes$ID <- Id_comm
+
+
+# On change le format du tableau pour faciliter la mise en graphique
+pr_graph <- melt(sommes, id.vars = "ID")
+colnames(pr_graph) <- c("ID", "Annee", "Pop")
+pr_graph$Annee <- as.character(pr_graph$Annee)
+pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+  scale_y_continuous(trans = 'log10') + labs(title="Évolution de la population des communes", subtitle="NB : Les communes plus peuplées que la plus peuplée\ndes communes nouvelles ont été retirées.", x="Année", y = "Population", linetype = " ")
+# Graphique qui est peu aisé à lire
+
+# Calcul de la base 100 à partir du recensement millésimé 2020
+sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[, 1]
+colnames(sommes_base_100) <- annees_recensements
+sommes_base_100$ID <- Id_comm
+pr_graph <- melt(sommes_base_100, id.vars = "ID")
+colnames(pr_graph) <- c("ID", "Annee", "Pop")
+pr_graph$Annee <- as.character(pr_graph$Annee)
+pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+  scale_y_continuous(trans = 'log10') + labs(title="Évolution de la population des communes", subtitle="NB : Les communes plus peuplées que la plus peuplée\ndes communes nouvelles ont été retirées.", x="Année", y = "Population (base 100 = 2021)", linetype = " ")
+
+# Calcul de la base 100 à partir du recensement le plus ancien (1876)
+sommes_base_100_deb <- 100 * sommes_base_100_deb / sommes_base_100_deb[, ncol(sommes_base_100_deb)]
+colnames(sommes_base_100_deb) <- annees_recensements
+sommes_base_100_deb$ID <- Id_comm
+pr_graph <- melt(sommes_base_100_deb, id.vars = "ID")
+colnames(pr_graph) <- c("ID", "Annee", "Pop")
+pr_graph$Annee <- as.character(pr_graph$Annee)
+pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+  scale_y_continuous(trans = 'log10') + labs(title="Évolution de la population des communes", subtitle="NB : Les communes plus peuplées que la plus peuplée\ndes communes nouvelles ont été retirées.", x="Année", y = "Population (base 100 = 1876)", linetype = " ")
+
+   
+  # Calcul données moyennes
+  moy <- as.data.frame(lapply(hist_pop[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moyennes <- rbind (moy, moy_CN, moy_Nfus)
+
+  colnames(moyennes) <- annees_recensements
+  moyennes$ID <- Id_comm
+
+  pr_graph <- melt(moyennes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population moyenne des communes [", ensembl_etud, "]"),
+         x="Année", y = "Population moyenne") +
+    scale_linetype(name = "Type", labels = c(paste0("Communes\nnouvelles\n(", nbr_CN,")"), ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")")))
+  print(graph)
+  
+# Représenter les moyennes ne rend pas les choses plus simples car les communes nouvelles ont une moyenne bien plus importante que les autres communes françaises
+
+```
+
+Les premiers résultats de cette analyse exploratoire sont surprenants au sens où c'est la première fois que les communes nouvelles se distinguent si clairement des communes n'ayant pas fusionné.
+
+L'analyse du graphique montre que les communes nouvelles qui se sont créées ont connu, dans l'ensemble, une forte perte démographique durant la période 1880-1920 mais elles sont aujourd'hui, comme l'ensemble des communes françaises, dans une croissance démographique.
+
+On observe un décrochage qui se produit au cours du XXe siècle en ce qui concerne les communes nouvelles. Elles perdent beaucoup de population entre 1880 et 1920, alors que les autres communes pas tant que cela. À partir des années 1920 les communes n'ayant pas fusionné connaissent une croissance qui s'accélèrent dans les années 1960 tandis que les communes nouvelles, qui voient leur population augmenter plus tardivement, connaissent une croissance plus faible.
+
+
+À noter qu'ici, on a retiré les communes ayant une taille en 2020 supérieure à la plus grande des communes nouvelles. Donc la très faible croissance démographique de l'ensemble de la France entre 1880 et 1960 s'explique sans doute principalement par le phénomène de l'exode rural vers les communes aujourd'hui très peuplées, phénomène du coup masqué par la suppression de ces communes aujourd'hui très peuplées.
+
+
+# Sans retirer les communes les plus peuplées
+
+Réalisation des mêmes graphiques mais sans retirer les communes plus peuplées que la plus grande des communes nouvelles.
+
+```{r evol_demographiques_avec_toutes_com}
+hist_pop <- hist_pop_tt
+
+hist_pop_Nfus <- subset (hist_pop, hist_pop$COM_NOUV == "NON")
+nbr_Nfus <- nrow(hist_pop_Nfus)
+  
+# On fait la somme de la population de l'ensemble des communes françaises
+somme <- as.data.frame(lapply(hist_pop[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+# On fait la somme de la population des communes nouvelles
+somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+# On fait la somme de la population des communes n'ayant pas fusionné
+somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+# On combine les données
+sommes <- sommes <- rbind (somme, somme_Nfus, somme_CN)
+# Création d'un tableau pour calculer les bases 100 en fonction du recensement le plus récent.
+sommes_base_100 <- sommes
+# Création d'un tableau pour calculer les bases 100 en fonction du recensement le plus ancien.
+sommes_base_100_deb <- sommes
+
+colnames(sommes) <- annees_recensements
+
+sommes$ID <- Id_comm
+
+
+# On change le format du tableau pour faciliter la mise en graphique
+pr_graph <- melt(sommes, id.vars = "ID")
+colnames(pr_graph) <- c("ID", "Annee", "Pop")
+pr_graph$Annee <- as.character(pr_graph$Annee)
+pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+  scale_y_continuous(trans = 'log10') + labs(title="Évolution de la population des communes", x="Année", y = "Population", linetype = " ")
+# Graphique qui est peu aisé à lire
+
+# Calcul de la base 100 à partir du recensement millésimé 2020
+sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[, 1]
+colnames(sommes_base_100) <- annees_recensements
+sommes_base_100$ID <- Id_comm
+pr_graph <- melt(sommes_base_100, id.vars = "ID")
+colnames(pr_graph) <- c("ID", "Annee", "Pop")
+pr_graph$Annee <- as.character(pr_graph$Annee)
+pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+  scale_y_continuous(trans = 'log10') + labs(title="Évolution de la population des communes", x="Année", y = "Population (base 100 = 2021)", linetype = " ")
+
+# Calcul de la base 100 à partir du recensement le plus ancien (1876)
+sommes_base_100_deb <- 100 * sommes_base_100_deb / sommes_base_100_deb[, ncol(sommes_base_100_deb)]
+colnames(sommes_base_100_deb) <- annees_recensements
+sommes_base_100_deb$ID <- Id_comm
+pr_graph <- melt(sommes_base_100_deb, id.vars = "ID")
+colnames(pr_graph) <- c("ID", "Annee", "Pop")
+pr_graph$Annee <- as.character(pr_graph$Annee)
+pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+  scale_y_continuous(trans = 'log10') + labs(title="Évolution de la population des communes", x="Année", y = "Population (base 100 = 1876)", linetype = " ")
+
+   
+  # Calcul données moyennes
+  moy <- as.data.frame(lapply(hist_pop[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moyennes <- rbind (moy, moy_CN, moy_Nfus)
+
+  colnames(moyennes) <- annees_recensements
+  moyennes$ID <- Id_comm
+
+  pr_graph <- melt(moyennes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population moyenne des communes [", ensembl_etud, "]"),
+         x="Année", y = "Population moyenne") +
+    scale_linetype(name = "Type", labels = c(paste0("Communes\nnouvelles\n(", nbr_CN,")"), ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")")))
+  print(graph)
+  
+# Représenter les moyennes ne rend pas les choses plus simples car les communes nouvelles ont une moyenne bien plus importante que les autres communes françaises
+```
+
+
+
+# Différenciation par ZAU
+
+On poursuit l'analyse en utilisant les mêmes données mais en différenciant en fonction du zonage en aire urbaine. En effet, on fait l'hypothèse que pour certaines catégories les évolutions démographiques sont similaires entre les communes nouvelles et les communes n'ayant pas fusionné mais que dans certais cas (on peut penser au petits pôles), les évolutions ont été différentes.
+
+```{r historique_pop en fonction ZAU}
+
+hist_pop <- hist_pop_tt
+
+# On rajoute un champ désignant la catégorie du zonage en aire urbaine de la commune en 2011 (donc, pour les communes fusionnantes, la catégorie de la commune devenue chef-lieu)
+hist_pop <- merge(hist_pop, df2011[, c("CODGEO", "CATAEU2010")], by = "CODGEO", all.x = TRUE, all.y = FALSE)
+
+colnames(hist_pop)[ncol(hist_pop)] <- "CATAEU2010"
+
+class(hist_pop$CATAEU2010)
+
+# zonage <- levels(hist_pop$CATAEU2010)[1]
+
+# Pour lisibilité données
+descr_CATAEU <- c("Commune appartenant à un grand pôle", "Commune appartenant à la couronne d'un grand pôle", " Commune multipolarisée des grandes aires urbaines", "Commune appartenant à un moyen pôle", " Commune appartenant à la couronne d'un moyen pôle", "Commune appartenant à un petit pôle", "Commune appartenant à la couronne d'un petit pôle", "Autre commune multipolarisée", "Commune isolée hors influence des pôles")
+labels_CATAEU <- as.data.frame(cbind(levels(hist_pop$CATAEU2010), descr_CATAEU))
+
+zonage <- levels(hist_pop$CATAEU2010)[3]
+
+for (zonage in levels(hist_pop$CATAEU2010)) {
+  nom_zonage <- labels_CATAEU$descr_CATAEU[which(labels_CATAEU$V1 == zonage)]
+  hist_pop_zonage <- subset (hist_pop, hist_pop$CATAEU2010 == zonage)
+  hist_pop_CN <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "OUI")
+  nbr_CN <- nrow(hist_pop_CN)
+  hist_pop_Nfus <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "NON")
+  
+  somme <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  sommes <- sommes <- rbind (somme, somme_Nfus, somme_CN)
+  sommes_base_100 <- sommes
+
+  colnames(sommes) <- annees_recensements
+  sommes$ID <- Id_comm
+
+  pr_graph <- melt(sommes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+  # scale_linetype_manual(values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population des communes\nCATAEU = ", nom_zonage, " (", zonage, ")"),
+         x="Année", y = "Population") + 
+    scale_linetype_manual(name = "Type", labels = c("France entière", "Nfus", paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  
+  print(graph)
+
+
+  sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[,1]
+  colnames(sommes_base_100) <- annees_recensements
+  sommes_base_100$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(title = paste0("Évolution de la population des communes en base 100\nCATAEU = ", nom_zonage, " (", zonage, ")"),
+         x="Année", y = "Population (base 100 = 2021)") +
+    scale_linetype_manual(name = "Type", labels = c("France entière", "Nfus", paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_CATAEU", zonage), graph)
+
+}
+
+analyse <- c("Pas de différence sensible.",
+          "Les territoires des communes nouvelles ont connu une perte de population un peu plus importante car elles étaient davantage peuplées dans les années 1880.",
+          "Pas de différence sensible.",
+          "Les territoires des communes nouvelles étaient, proportionnellement à leur taille d'aujourd'hui, moins peuplées auparavant, donc plutôt dans une dynamique de croissance plus forte.",
+          "Pas de différence sensible.",
+          "Différence nette : les communes nouvelles ont une taille aujourd'hui proche de celle qu'elles avaient au début du XXe siècle alors que les communes qui n'ont pas fusionné étaient vraiment plus petites.",
+          "Les communes nouvelles ont connu une décroissance plus faible que les communes qui n'ont pas fusionné.", 
+          "Pas de différence sensible.",
+          "Les communes nouvelles ont connu une décroissance plus faible que les communes qui n'ont pas fusionné.")
+
+labels_CATAEU$analyse <- analyse
+
+kable(labels_CATAEU)
+
+plot_grid(graph_evol_CATAEU111,
+          graph_evol_CATAEU112,
+          graph_evol_CATAEU120,
+          graph_evol_CATAEU211,
+          graph_evol_CATAEU212,
+          graph_evol_CATAEU221,
+          graph_evol_CATAEU222,
+          graph_evol_CATAEU300,
+          graph_evol_CATAEU400)
+
+# Pour afficher plusieurs vignettes (par(mfrow = c(3,3)) ne fonctionne pas)
+# for (zonage in levels(hist_pop$CATAEU2010)) {
+#   print(get(paste0("graph_evol_CATAEU", zonage)))
+#   }
+
+# par(mfrow = c(1,1))
+
+
+```
+
+# Différenciation par ZAAV
+
+On différencie ici en fonction des bases d'aires urbaines, soit les zonages à la géographie du 1^er^ janvier 2021.
+
+### Pour la France entière
+
+```{r historique_pop en fonction ZAAV}
+hist_pop <- hist_pop_tt
+
+
+hist_pop <- merge(hist_pop, appart[, c("CODGEO", "CATEAAV2020", "REG")], by = "CODGEO")
+class(hist_pop$CATEAAV2020)
+hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
+levels(hist_pop$CATEAAV2020)
+
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
+
+zonage <- levels(hist_pop$CATEAAV2020)[1]
+
+for (zonage in levels(hist_pop$CATEAAV2020)) {
+  # Sélection données
+  nom_zonage <- labels_CATEAAV$descr_CATEAAV[which(labels_CATEAAV$V1 == zonage)]
+  hist_pop_zonage <- subset (hist_pop, hist_pop$CATEAAV2020 == zonage)
+  hist_pop_CN <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "OUI")
+  nbr_CN <- nrow(hist_pop_CN)
+  hist_pop_Nfus <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "NON")
+  nbr_Nfus <- nrow(hist_pop_Nfus)
+  
+  # Calcul des sommes
+  somme <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  sommes <- sommes <- rbind (somme, somme_Nfus, somme_CN)
+  sommes_base_100 <- sommes
+  sommes_base_100_deb <- sommes
+
+  # Préparation données sommes pour graphiques
+  colnames(sommes) <- annees_recensements
+  sommes$ID <- Id_comm
+
+  # Graphiques sommes
+  pr_graph <- melt(sommes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(title = paste0("Évolution de la population des communes\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10')
+  print(graph)
+
+  # Préparation données sommes base 100 (2020) pour graphiques
+  sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[,1]
+  colnames(sommes_base_100) <- annees_recensements
+  sommes_base_100$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (2020)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (2020)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 2021)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_2021_CATEAAV", zonage), graph)
+ 
+    # Préparation données sommes base 100 (1876) pour graphiques
+  sommes_base_100_deb <- 100 * sommes_base_100_deb / sommes_base_100_deb$PTOT1876
+  colnames(sommes_base_100_deb) <- annees_recensements
+  sommes_base_100_deb$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100_deb, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (1876)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (1876)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 1876)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_1876_CATEAAV", zonage), graph)
+
+   
+  # Calcul données moyennes
+  moy <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moyennes <- rbind (moy, moy_CN, moy_Nfus)
+
+  colnames(moyennes) <- annees_recensements
+  moyennes$ID <- Id_comm
+
+  pr_graph <- melt(moyennes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population moyenne des communes\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population moyenne") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  
+}
+
+analyse_base100_2021 <- c("Les communes nouvelles catégorisées en 2020 comme des communes centres étaient, par rapport aux autres communes centres de poids similaire en 2020, bien plus peuplées à la fin du XIXe siècle. Alors que les autres communes centres ont plutôt connu une croissance démographique depuis la fin du XIXe siècle, il faut attendre les années 1920 pour que les communes nouvelles en connaissent une. À poids démographique égal, ces espaces ont donc perdu du poids démographique relatif.",
+             "Les communes nouvelles ont connu une croissance moins importante que les autres communes françaises de ce type. Mais faible nombre de communes nouvelles.",
+             "Pas de communes nouvelles.",
+             "Les communes nouvelles avaient une taille plus proche de celles qu'elles ont aujourd'hui. En revanche, leur trajectoire démographique a été plus mouvementée. On observe d'abord une forte diminution durant les années 1880-1920, puis une baisse bien plus limitée jusque dans les années 1960-1970 (alors que les autres communes amorcent une croissance). À partir de 1960 les communes n'ayant pas fusionné connaissent une croissance bien plus rapide et plus forte que les communes nouvelles, qui voient leur population augmenter plus tardivement et plus lentement.", 
+             "Dynamiques proches, même si les communes nouvelles ont davantage perdues que les autres jusqu'aux années 1940-1960 et ont moins perdu ou davantage gagné après.")
+
+labels_CATEAAV$analyse_base100_2021 <- analyse_base100_2021
+
+kable(labels_CATEAAV)
+
+# Pour afficher plusieurs vignettes (par(mfrow = c(3,3)) ne fonctionne pas)
+# NB : On retire CATEAAV13 car pas de communes nouvelles
+plot_grid(graph_evol_base100_1876_CATEAAV11,
+          graph_evol_base100_1876_CATEAAV12,
+          graph_evol_base100_1876_CATEAAV20,
+          graph_evol_base100_1876_CATEAAV30)
+
+plot_grid(graph_evol_base100_2021_CATEAAV11,
+          graph_evol_base100_2021_CATEAAV12,
+          graph_evol_base100_2021_CATEAAV20,
+          graph_evol_base100_2021_CATEAAV30)
+# for (zonage in levels(hist_pop$CATAEU2010)) {
+#   print(get(paste0("graph_evol_CATAEU", zonage)))
+#   }
+
+# par(mfrow = c(1,1))
+
+
+```
+
+
+
+
+L'analyse des données par zonage est rendue compliquée par le fait qu'à type de zonage identique, les communes nouvelles ont une population bien plus importante que les communes n'ayant pas fusionné.
+
+
+Pour la différence de zonage : On garde AAV en première intention, quitte à dire qu'on a regardé le ZAU.
+
+
+Ce premier travail est prometteur sur l'étude qui pourrait être fait des communes nouvelles en prenant en compte les données démographiques sur le temps long.
+
+Les études démographiques utilisant les méthodes d'analyse spatiale proposent parfois d'approfondir cela en regardant les soldes démographiques et migratoires (@oliveau2016, @doignon2016). Pour l'instant, ces données ne sont disponibles qu'à partir de 1968, or ce n'est pas la période où les communes nouvelles et les autres communes se différencient le plus, cela n'est donc a priori pas le plus utile.
+
+
+
+### Que Normandie
+
+En ne sélectionnant que la Normandie.
+
+
+```{r historique_pop en fonction ZAAV_Normandie}
+ensembl_etud <- "Normandie"
+
+hist_pop <- hist_pop_tt
+
+hist_pop <- merge(hist_pop, appart[, c("CODGEO", "CATEAAV2020", "REG")], by = "CODGEO")
+
+# On ne sélectionne que la Normandie
+hist_pop <- subset(hist_pop, REG == "28")
+
+class(hist_pop$CATEAAV2020)
+hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
+levels(hist_pop$CATEAAV2020)
+
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
+
+zonage <- levels(hist_pop$CATEAAV2020)[1]
+
+for (zonage in levels(hist_pop$CATEAAV2020)) {
+  # Sélection données
+  nom_zonage <- labels_CATEAAV$descr_CATEAAV[which(labels_CATEAAV$V1 == zonage)]
+  hist_pop_zonage <- subset (hist_pop, hist_pop$CATEAAV2020 == zonage)
+  hist_pop_CN <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "OUI")
+  nbr_CN <- nrow(hist_pop_CN)
+  hist_pop_Nfus <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "NON")
+  nbr_Nfus <- nrow(hist_pop_Nfus)
+  
+  # Calcul des sommes
+  somme <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  sommes <- sommes <- rbind (somme, somme_Nfus, somme_CN)
+  sommes_base_100 <- sommes
+  sommes_base_100_deb <- sommes
+
+  # Préparation données sommes pour graphiques
+  colnames(sommes) <- annees_recensements
+  sommes$ID <- Id_comm
+
+  # Graphiques sommes
+  pr_graph <- melt(sommes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(title = paste0("Évolution de la population des communes\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10')
+  print(graph)
+
+  # Préparation données sommes base 100 (2020) pour graphiques
+  sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[,1]
+  colnames(sommes_base_100) <- annees_recensements
+  sommes_base_100$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (2020)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (2020)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 2021)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_2021_CATEAAV", zonage), graph)
+ 
+    # Préparation données sommes base 100 (1876) pour graphiques
+  sommes_base_100_deb <- 100 * sommes_base_100_deb / sommes_base_100_deb$PTOT1876
+  colnames(sommes_base_100_deb) <- annees_recensements
+  sommes_base_100_deb$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100_deb, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (1876)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (1876)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 1876)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_1876_CATEAAV", zonage), graph)
+
+   
+  # Calcul données moyennes
+  moy <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moyennes <- rbind (moy, moy_CN, moy_Nfus)
+
+  colnames(moyennes) <- annees_recensements
+  moyennes$ID <- Id_comm
+
+  pr_graph <- melt(moyennes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population des communes moyenne\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population moyenne") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  
+}
+
+analyse_base100_2020 <- c("Les communes nouvelles normandes se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.",
+             "Trop peu de communes nouvelles.",
+             "Pas de communes nouvelles.",
+             "Les communes nouvelles normandes se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.", 
+             "Les communes nouvelles normandes se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.")
+
+labels_CATEAAV$analyse_base100_2020 <- analyse_base100_2020
+
+kable(labels_CATEAAV)
+
+# Pour afficher plusieurs vignettes (par(mfrow = c(3,3)) ne fonctionne pas)
+# NB : On retire CATEAAV13 car pas de communes nouvelles
+plot_grid(graph_evol_base100_1876_CATEAAV11,
+          graph_evol_base100_1876_CATEAAV12,
+          graph_evol_base100_1876_CATEAAV20,
+          graph_evol_base100_1876_CATEAAV30)
+
+plot_grid(graph_evol_base100_2021_CATEAAV11,
+          graph_evol_base100_2021_CATEAAV12,
+          graph_evol_base100_2021_CATEAAV20,
+          graph_evol_base100_2021_CATEAAV30)
+# for (zonage in levels(hist_pop$CATAEU2011)) {
+#   print(get(paste0("graph_evol_CATAEU", zonage)))
+#   }
+
+# par(mfrow = c(1,1))
+
+
+```
+
+
+### Que Maine-et-Loire
+
+En ne sélectionnant que le Maine-et-Loire.
+
+
+```{r historique_pop en fonction ZAAV_dep49}
+ensembl_etud <- "Maine-et-Loire"
+
+hist_pop <- hist_pop_tt
+
+hist_pop <- merge(hist_pop, appart[, c("CODGEO", "CATEAAV2020")], by = "CODGEO")
+
+# On ne sélectionne que la Normandie
+hist_pop <- subset(hist_pop, DEP == "49")
+
+class(hist_pop$CATEAAV2020)
+hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
+levels(hist_pop$CATEAAV2020)
+
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
+
+zonage <- levels(hist_pop$CATEAAV2020)[1]
+
+for (zonage in levels(hist_pop$CATEAAV2020)) {
+  # Sélection données
+  nom_zonage <- labels_CATEAAV$descr_CATEAAV[which(labels_CATEAAV$V1 == zonage)]
+  hist_pop_zonage <- subset (hist_pop, hist_pop$CATEAAV2020 == zonage)
+  hist_pop_CN <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "OUI")
+  nbr_CN <- nrow(hist_pop_CN)
+  hist_pop_Nfus <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "NON")
+  nbr_Nfus <- nrow(hist_pop_Nfus)
+  
+  # Calcul des sommes
+  somme <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  sommes <- sommes <- rbind (somme, somme_Nfus, somme_CN)
+  sommes_base_100 <- sommes
+  sommes_base_100_deb <- sommes
+
+  # Préparation données sommes pour graphiques
+  colnames(sommes) <- annees_recensements
+  sommes$ID <- Id_comm
+
+  # Graphiques sommes
+  pr_graph <- melt(sommes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(title = paste0("Évolution de la population des communes\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10')
+  print(graph)
+
+  # Préparation données sommes base 100 (2021) pour graphiques
+  sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[,1]
+  colnames(sommes_base_100) <- annees_recensements
+  sommes_base_100$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (2020)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (2020)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 2021)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_2021_CATEAAV", zonage), graph)
+ 
+    # Préparation données sommes base 100 (1876) pour graphiques
+  sommes_base_100_deb <- 100 * sommes_base_100_deb / sommes_base_100_deb$PTOT1876
+  colnames(sommes_base_100_deb) <- annees_recensements
+  sommes_base_100_deb$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100_deb, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (1876)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (1876)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 1876)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_1876_CATEAAV", zonage), graph)
+
+   
+  # Calcul données moyennes
+  moy <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moyennes <- rbind (moy, moy_CN, moy_Nfus)
+
+  colnames(moyennes) <- annees_recensements
+  moyennes$ID <- Id_comm
+
+  pr_graph <- melt(moyennes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population des communes moyenne\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population moyenne") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  
+}
+
+
+analyse_base100_2020 <- c("Les communes nouvelles du Maine-et-Loire se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.",
+             "Trop peu de communes nouvelles.",
+             "Pas de communes nouvelles.",
+             "Les communes nouvelles du Maine-et-Loire se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.", 
+             "Très peu de communes nouvelles, et celles-ci se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.")
+
+labels_CATEAAV$analyse_base100_2020 <- analyse_base100_2020
+
+kable(labels_CATEAAV)
+
+# Pour afficher plusieurs vignettes (par(mfrow = c(3,3)) ne fonctionne pas)
+# NB : On retire CATEAAV13 car pas de communes nouvelles
+plot_grid(graph_evol_base100_1876_CATEAAV11,
+          graph_evol_base100_1876_CATEAAV12,
+          graph_evol_base100_1876_CATEAAV20,
+          graph_evol_base100_1876_CATEAAV30)
+# dev.off()
+
+
+plot_grid(graph_evol_base100_2021_CATEAAV11,
+          graph_evol_base100_2021_CATEAAV12,
+          graph_evol_base100_2021_CATEAAV20,
+          graph_evol_base100_2021_CATEAAV30)
+# for (zonage in levels(hist_pop$CATAEU2011)) {
+#   print(get(paste0("graph_evol_CATAEU", zonage)))
+#   }
+
+# par(mfrow = c(1,1))
+
+
+```
+
+
+
+### Que RALP
+
+En ne sélectionnant que la région Rhône-Alpes.
+
+
+```{r historique_pop en fonction ZAAV_ARA}
+ensembl_etud <- "Auvergne-Rhône-Alpes"
+
+hist_pop <- hist_pop_tt
+
+hist_pop <- merge(hist_pop, appart[, c("CODGEO", "CATEAAV2020", "REG")], by = "CODGEO")
+
+# On ne sélectionne que la région Auvergne-Rhône-Alpes
+hist_pop <- subset(hist_pop, REG.x == "84")
+
+class(hist_pop$CATEAAV2020)
+hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
+levels(hist_pop$CATEAAV2020)
+
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
+
+zonage <- levels(hist_pop$CATEAAV2020)[1]
+
+for (zonage in levels(hist_pop$CATEAAV2020)) {
+  # Sélection données
+  nom_zonage <- labels_CATEAAV$descr_CATEAAV[which(labels_CATEAAV$V1 == zonage)]
+  hist_pop_zonage <- subset (hist_pop, hist_pop$CATEAAV2020 == zonage)
+  hist_pop_CN <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "OUI")
+  nbr_CN <- nrow(hist_pop_CN)
+  hist_pop_Nfus <- subset (hist_pop_zonage, hist_pop_zonage$COM_NOUV == "NON")
+  nbr_Nfus <- nrow(hist_pop_Nfus)
+  
+  # Calcul des sommes
+  somme <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  somme_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], sum, na.rm = TRUE))
+  sommes <- sommes <- rbind (somme, somme_Nfus, somme_CN)
+  sommes_base_100 <- sommes
+  sommes_base_100_deb <- sommes
+
+  # Préparation données sommes pour graphiques
+  colnames(sommes) <- annees_recensements
+  sommes$ID <- Id_comm
+
+  # Graphiques sommes
+  pr_graph <- melt(sommes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(title = paste0("Évolution de la population des communes\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted")) +
+    scale_y_continuous(trans = 'log10')
+  print(graph)
+
+  # Préparation données sommes base 100 (2020) pour graphiques
+  sommes_base_100 <- 100 * sommes_base_100 / sommes_base_100[,1]
+  colnames(sommes_base_100) <- annees_recensements
+  sommes_base_100$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (2020)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (2020)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 2021)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_2021_CATEAAV", zonage), graph)
+ 
+    # Préparation données sommes base 100 (1876) pour graphiques
+  sommes_base_100_deb <- 100 * sommes_base_100_deb / sommes_base_100_deb$PTOT1876
+  colnames(sommes_base_100_deb) <- annees_recensements
+  sommes_base_100_deb$ID <- Id_comm
+  pr_graph <- melt(sommes_base_100_deb, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  # Graphiques sommes base 100 (1876)
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    labs(#title = paste0("Évolution de la population des communes en base 100 (1876)\nCATEAAV = ", nom_zonage, " (", zonage, ") [France entière]"),
+         subtitle = paste0("CATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "population des communes (base 100 = 1876)") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  assign(paste0("graph_evol_base100_1876_CATEAAV", zonage), graph)
+
+   
+  # Calcul données moyennes
+  moy <- as.data.frame(lapply(hist_pop_zonage[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_CN <- as.data.frame(lapply(hist_pop_CN[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moy_Nfus <- as.data.frame(lapply(hist_pop_Nfus[5:nbr_col_hist_pop_ini], mean, na.rm = TRUE))
+  moyennes <- rbind (moy, moy_CN, moy_Nfus)
+
+  colnames(moyennes) <- annees_recensements
+  moyennes$ID <- Id_comm
+
+  pr_graph <- melt(moyennes, id.vars = "ID")
+  colnames(pr_graph) <- c("ID", "Annee", "Pop")
+  pr_graph$Annee <- as.character(pr_graph$Annee)
+  pr_graph$Annee <- as.numeric(pr_graph$Annee) # Si on ne fait pas en deux étapes le nombre n'est que le niveau du facteur
+
+  graph <-  ggplot(data = pr_graph, aes(x = Annee, y = Pop)) + geom_line(aes(group = ID, linetype = ID)) +
+    scale_y_continuous(trans = 'log10') +
+    labs(title = paste0("Évolution de la population des communes moyenne\nCATEAAV = ", nom_zonage, " (", zonage, ") [", ensembl_etud, "]"),
+         x="Année", y = "Population moyenne") +
+    scale_linetype_manual(name = "Type", labels = c(ensembl_etud, paste0("Communes\ninchangées\n(", nbr_Nfus,")"), paste0("Communes\nnouvelles\n(", nbr_CN,")")), values=c("solid", "twodash", "dotted"))
+  print(graph)
+  
+  
+}
+
+
+labels_CATEAAV$analyse_base100_2020 <- analyse_base100_2020
+
+kable(labels_CATEAAV)
+
+# Pour afficher plusieurs vignettes (par(mfrow = c(3,3)) ne fonctionne pas)
+# NB : On retire CATEAAV13 car pas de communes nouvelles
+plot_grid(graph_evol_base100_1876_CATEAAV11,
+          graph_evol_base100_1876_CATEAAV12,
+          graph_evol_base100_1876_CATEAAV20,
+          graph_evol_base100_1876_CATEAAV30)
+
+ plot_grid(graph_evol_base100_2021_CATEAAV11,
+          graph_evol_base100_2021_CATEAAV12,
+          graph_evol_base100_2021_CATEAAV20,
+          graph_evol_base100_2021_CATEAAV30)
+# for (zonage in levels(hist_pop$CATAEU2011)) {
+#   print(get(paste0("graph_evol_CATAEU", zonage)))
+#   }
+
+# par(mfrow = c(1,1))
+
+
+```
+
+
+```{r Nettoyage espace de travail fin section 999, echo=FALSE}
+rm(list=ls())
+```
+
+
+# Bibliographie
+\nocite{}
+
