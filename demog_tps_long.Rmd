@@ -47,10 +47,20 @@ library(rgeoda) # Pour les matrices de contiguïté
 
 ```
 
+Ce script présente l'étude des communes nouvelles au prisme des évolutions démographiques sur le temps long.
+
+Il est mis à disposition dans une logique de science ouverte.
+
+Ce travail s'inscrit dans le cadre d'une étude plus générale sur les communes nouvelles :
+
+https://cv.hal.science/gabriel-bideau
+
+Licence CC-BY-NC-SA.
+
+Il est possible d'accéder au code de ce Markdown [ici](https://gbideau.github.io/CN_demog_temps_long/demog_tps_long.Rmd).
 
 
-
-#Packages nécessaires
+# Packages nécessaires
 
 
 ```{r Librairies}
