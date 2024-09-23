@@ -47,7 +47,9 @@ library(rgeoda) # Pour les matrices de contiguïté
 
 ```
 
-Ce script présente l'étude des communes nouvelles au prisme des évolutions démographiques sur le temps long.
+NB : Ce script est un document de travail.
+
+Il présente l'étude des communes nouvelles au prisme des évolutions démographiques sur le temps long.
 
 Il est mis à disposition dans une logique de science ouverte.
 
@@ -57,14 +59,14 @@ https://cv.hal.science/gabriel-bideau
 
 Licence CC-BY-NC-SA.
 
-Il est possible d'accéder au code de ce Markdown [ici](https://gbideau.github.io/CN_demog_temps_long/demog_tps_long.Rmd).
+Il est possible d'accéder au code de ce Markdown ici : https://gbideau.github.io/CN_demog_temps_long/demog_tps_long.Rmd.
 
 
-# Packages nécessaires
+Ne pas hésiter à contacter l'auteur (gabriel.bideau@gmail.com) pour toute question.
 
 
-```{r Librairies}
-# Librairies utilisées
+```{r Librairies, echo=FALSE}
+# Librairies utilisées dans différents scripts (tout n'est peut-être pas nécessaire ici)
 library(sf)
 library(cartography)
 library(mapsf)
@@ -109,8 +111,11 @@ Il s'agit d'observer si les communes nouvelles se sont créées dans des context
 
 Pour une analyse en première intention, on utilise un fichier aisément disponible, celui de l'historique des populations depuis 1876, les données étant agrégées à la géométrie administrative au 1er janvier 2021 (ce qui simplifie grandement tous les appariements).
 
-Source : https://www.insee.fr/fr/statistiques/3698339.
+Source des données sur le temps long : https://www.insee.fr/fr/statistiques/3698339. Fichier disponible ici : https://gbideau.github.io/CN_demog_temps_long/historique_pop_1876-2021.xlsx.
 
+Les autres données utilisées sont celles issues de la base DAC (cf. https://journals.openedition.org/cybergeo/39387), mise à jour avec les communes nouvelles jusqu'au 1^er^ janvier 2023, disponible ici : https://gbideau.github.io/CN_demog_temps_long/refdata_2023.Rdata.
+
+**NB : L'expression « communes inchangées » doit s'entendre comme les communes « non-nouvelles », n'ayant pas connu de changement durant la période 2010-2024 (elles ont pu connaître des changements à d'autres époques).**
 
 ```{r evol_demographiques}
 # download.file("https://www.insee.fr/fr/statistiques/fichier/3698339/base-pop-historiques-1876-2019.xlsx", "data-raw/stats_insee/historique_pop_1876-2019.xlsx")
@@ -625,7 +630,7 @@ class(hist_pop$CATEAAV2020)
 hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
 levels(hist_pop$CATEAAV2020)
 
-descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune de la couronne", "Commune hors attraction des villes") # Il faut enlever le "Commune d'un pôle secondaire"
 labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
 
 zonage <- levels(hist_pop$CATEAAV2020)[1]
@@ -729,7 +734,6 @@ for (zonage in levels(hist_pop$CATEAAV2020)) {
 
 analyse_base100_2020 <- c("Les communes nouvelles normandes se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.",
              "Trop peu de communes nouvelles.",
-             "Pas de communes nouvelles.",
              "Les communes nouvelles normandes se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.", 
              "Les communes nouvelles normandes se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.")
 
@@ -777,7 +781,7 @@ class(hist_pop$CATEAAV2020)
 hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
 levels(hist_pop$CATEAAV2020)
 
-descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune de la couronne", "Commune hors attraction des villes") # Il faut enlever le "Commune d'un pôle secondaire"
 labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
 
 zonage <- levels(hist_pop$CATEAAV2020)[1]
@@ -882,7 +886,6 @@ for (zonage in levels(hist_pop$CATEAAV2020)) {
 
 analyse_base100_2020 <- c("Les communes nouvelles du Maine-et-Loire se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.",
              "Trop peu de communes nouvelles.",
-             "Pas de communes nouvelles.",
              "Les communes nouvelles du Maine-et-Loire se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.", 
              "Très peu de communes nouvelles, et celles-ci se distinguent des autres communes normandes de manière similaire au décrochage observé pour la France entière.")
 
@@ -933,7 +936,7 @@ class(hist_pop$CATEAAV2020)
 hist_pop$CATEAAV2020 <- as.factor(hist_pop$CATEAAV2020)
 levels(hist_pop$CATEAAV2020)
 
-descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune d'un pôle secondaire", "Commune de la couronne", "Commune hors attraction des villes")
+descr_CATEAAV <- c("Commune-centre", "Autre commune du pôle principal", "Commune de la couronne", "Commune hors attraction des villes") # Il faut enlever le "Commune d'un pôle secondaire"
 labels_CATEAAV <- as.data.frame(cbind(levels(hist_pop$CATEAAV2020), descr_CATEAAV))
 
 zonage <- levels(hist_pop$CATEAAV2020)[1]
